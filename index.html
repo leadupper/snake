@@ -39,7 +39,6 @@
             height: 100%;
         }
 
-        /* HUD & UI Overlays */
         .hud {
             position: fixed;
             top: 0;
@@ -120,7 +119,6 @@
             to { opacity: 1; transform: scale(1.03); }
         }
 
-        /* Leaderboard */
         .leaderboard {
             background: var(--panel-bg);
             backdrop-filter: blur(10px);
@@ -154,7 +152,6 @@
             font-weight: 700;
         }
 
-        /* Minimap */
         .minimap-container {
             position: fixed;
             bottom: 20px;
@@ -175,7 +172,6 @@
             height: 100%;
         }
 
-        /* Event Banner */
         #eventBanner {
             position: fixed;
             top: 95px;
@@ -203,7 +199,6 @@
             transform: translateX(-50%) translateY(5px);
         }
 
-        /* Mobile & Desktop Action Buttons */
         .controls-hint {
             position: fixed;
             bottom: 20px;
@@ -244,7 +239,6 @@
             transform: scale(0.92);
         }
 
-        /* Start / Game Over Modal */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -391,7 +385,6 @@
 
     <canvas id="gameCanvas"></canvas>
 
-    <!-- HUD -->
     <div class="hud">
         <div class="stats-card">
             <div style="display:flex; align-items:baseline; gap:10px;">
@@ -402,7 +395,7 @@
                 <div class="xp-bar-fill" id="hudXpBar"></div>
             </div>
             <div class="sub-stats">
-                <span id="hudLength">長度: 12</span>
+                <span id="hudLength">長度: 14</span>
                 <span id="hudKills">擊殺: 0</span>
             </div>
             <div class="active-buffs" id="hudBuffs"></div>
@@ -426,7 +419,6 @@
 
     <button id="boostBtn">加速</button>
 
-    <!-- Start / Death Screen -->
     <div class="modal-overlay" id="menuModal">
         <div class="modal-card">
             <h1 class="modal-title">吞噬進化論</h1>
@@ -465,30 +457,22 @@
     </div>
 
     <script>
-        /**
-         * 離線單文件貪食蛇：《吞噬進化論 Neon Ouroboros》
-         * 核心機制：
-         * 1. 等級與蛇身長度嚴格成正比 (Segments = BASE_LEN + Level * LEN_PER_LEVEL)
-         * 2. 只有高 Level 可吃掉低 Level 蛇頭（即時死亡）或咬斷低 Level 蛇身（按斷裂比例扣除 Level 與長度，掉落能量塊）
-         * 3. 豐富奇異玩法：黑洞引力、傳送蟲洞、磁鐵、幽靈狀態、降維毒藥（暫時降級反殺機制！）、周期性世界異變事件
-         * 4. 純原生 Canvas 2D 高幀率渲染 + Web Audio API 離線合成音效
-         */
-
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const minimapCanvas = document.getElementById('minimapCanvas');
         const mCtx = minimapCanvas.getContext('2d');
 
-        // 遊戲世界設定
+        // 遊戲世界與效能上限設定
         const WORLD_SIZE = 3600;
         const BASE_SEGMENTS = 10;
         const SEGMENTS_PER_LEVEL = 4;
         const SEGMENT_SPACING = 9;
-        const MAX_BOTS = 26;
-        const MAX_FOOD = 380;
+        const MAX_BOTS = 24;
+        const MAX_FOOD = 360;
+        const HARD_FOOD_CAP = 650;      // 防止肉塊過多導致掉幀
+        const HARD_PARTICLE_CAP = 300;  // 防止粒子爆炸導致卡頓
         const MAX_POWERUPS = 18;
 
-        // 蛇的稱號階級
         const LEVEL_TITLES = [
             { lv: 1, title: "微光幼蛇" },
             { lv: 3, title: "霓虹獵手" },
@@ -499,7 +483,6 @@
             { lv: 30, title: "吞世古神" }
         ];
 
-        // 調色盤
         const SNAKE_THEMES = [
             { head: '#00f3ff', body1: '#00b4d8', body2: '#0077b6', glow: 'rgba(0, 243, 255, 0.5)' },
             { head: '#ff007f', body1: '#ff4d94', body2: '#b5179e', glow: 'rgba(255, 0, 127, 0.5)' },
@@ -516,44 +499,46 @@
             "機械巨蟒", "極光獵人", "混沌之蛇", "幻影刺客", "泰坦巨獸", "奧羅波羅斯"
         ];
 
-        // 奇異道具定義
         const POWERUP_TYPES = [
             { id: 'magnet', name: '引力磁場', icon: '🧲', color: '#00f3ff', duration: 10 },
             { id: 'ghost', name: '相位幽靈', icon: '👻', color: '#c77dff', duration: 7 },
             { id: 'frenzy', name: '雙倍吞噬', icon: '🔥', color: '#ff5400', duration: 10 },
-            { id: 'shrink_curse', name: '降維打擊彈', icon: '☣️', color: '#38b000', duration: 0 }, // 立即向周圍高等蛇發射降維波
-            { id: 'growth_surge', name: '基因突變', icon: '🧬', color: '#ffd700', duration: 0 }  // 立即提升 2 Level
+            { id: 'shrink_curse', name: '降維打擊彈', icon: '☣️', color: '#38b000', duration: 0 },
+            { id: 'growth_surge', name: '基因突變', icon: '🧬', color: '#ffd700', duration: 0 }
         ];
 
-        // 離線 Web Audio 音效合成器
         class SoundFX {
             constructor() {
                 this.ctx = null;
             }
             init() {
-                if (!this.ctx) {
-                    const AudioContext = window.AudioContext || window.webkitAudioContext;
-                    if (AudioContext) this.ctx = new AudioContext();
-                }
-                if (this.ctx && this.ctx.state === 'suspended') {
-                    this.ctx.resume();
-                }
+                try {
+                    if (!this.ctx) {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        if (AudioContext) this.ctx = new AudioContext();
+                    }
+                    if (this.ctx && this.ctx.state === 'suspended') {
+                        this.ctx.resume();
+                    }
+                } catch (e) {}
             }
             playTone(freq, type, duration, vol = 0.1, slideFreq = null) {
                 if (!this.ctx) return;
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                osc.type = type;
-                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-                if (slideFreq) {
-                    osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
-                }
-                gain.gain.setValueAtTime(vol, this.ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                osc.start();
-                osc.stop(this.ctx.currentTime + duration);
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    if (slideFreq) {
+                        osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
+                    }
+                    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) {}
             }
             eat() { this.playTone(520 + Math.random() * 180, 'sine', 0.08, 0.06, 880); }
             levelUp() {
@@ -570,8 +555,7 @@
         }
         const sfx = new SoundFX();
 
-        // 遊戲全局狀態
-        let gameState = 'MENU'; // MENU, PLAYING
+        let gameState = 'MENU';
         let snakes = [];
         let foods = [];
         let powerups = [];
@@ -582,16 +566,15 @@
         let player = null;
         let camera = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2, zoom: 1 };
         let screenShake = 0;
+        let hudUpdateTimer = 0;
 
-        // 世界異變系統
         let worldEvent = {
             active: false,
             type: null,
-            timer: 20, // 距離下次事件的倒數
+            timer: 20,
             duration: 0
         };
 
-        // 輸入控制狀態
         let input = {
             targetAngle: 0,
             hasPointer: false,
@@ -601,7 +584,6 @@
             keys: {}
         };
 
-        // 調整畫布尺寸
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -609,7 +591,6 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // 工具函數
         function dist(x1, y1, x2, y2) {
             return Math.hypot(x2 - x1, y2 - y1);
         }
@@ -617,6 +598,7 @@
             return a + (b - a) * t;
         }
         function normalizeAngle(a) {
+            if (!Number.isFinite(a)) return 0;
             while (a > Math.PI) a -= Math.PI * 2;
             while (a < -Math.PI) a += Math.PI * 2;
             return a;
@@ -630,11 +612,13 @@
         }
 
         function spawnFloatingText(x, y, text, color = '#fff', size = 16) {
+            if (floatingTexts.length > 40) floatingTexts.shift();
             floatingTexts.push({ x, y, text, color, size, life: 1.0, vy: -45 });
         }
 
         function spawnParticles(x, y, color, count = 12, speed = 160) {
-            for (let i = 0; i < count; i++) {
+            const allowed = Math.min(count, HARD_PARTICLE_CAP - particles.length);
+            for (let i = 0; i < allowed; i++) {
                 const ang = Math.random() * Math.PI * 2;
                 const spd = (0.3 + Math.random() * 0.7) * speed;
                 particles.push({
@@ -648,12 +632,21 @@
             }
         }
 
-        // 食物生成器
         function spawnFood(x, y, value = 10, color = null, isMeat = false) {
+            if (foods.length >= HARD_FOOD_CAP) {
+                // 若達到上限且是高價值肉塊，替換掉最早的普通微光點
+                if (isMeat) {
+                    const normalIdx = foods.findIndex(f => !f.isMeat);
+                    if (normalIdx !== -1) foods.splice(normalIdx, 1);
+                    else return;
+                } else {
+                    return;
+                }
+            }
             const palette = ['#00f3ff', '#ff007f', '#ffd700', '#00ff87', '#c77dff', '#ff9e00'];
             foods.push({
-                x: x !== undefined ? x : 100 + Math.random() * (WORLD_SIZE - 200),
-                y: y !== undefined ? y : 100 + Math.random() * (WORLD_SIZE - 200),
+                x: x !== undefined ? Math.max(40, Math.min(WORLD_SIZE - 40, x)) : 100 + Math.random() * (WORLD_SIZE - 200),
+                y: y !== undefined ? Math.max(40, Math.min(WORLD_SIZE - 40, y)) : 100 + Math.random() * (WORLD_SIZE - 200),
                 value,
                 radius: isMeat ? Math.min(14, 6 + value * 0.12) : (4 + Math.random() * 3),
                 color: color || palette[Math.floor(Math.random() * palette.length)],
@@ -673,7 +666,6 @@
             });
         }
 
-        // 蛇類定義
         class Snake {
             constructor(name, x, y, startLevel = 1, isPlayer = false) {
                 this.name = name;
@@ -688,11 +680,12 @@
                 this.angle = Math.random() * Math.PI * 2;
                 this.baseSpeed = 195;
                 this.boostCostTimer = 0;
-                this.stunTimer = 0; // 同級碰撞暈眩
-                this.invulnTimer = 2.0; // 出生保護
-                this.buffs = {}; // { magnet: 10, ghost: 7, frenzy: 10 }
+                this.stunTimer = 0;
+                this.invulnTimer = 2.0;
+                this.hurtCooldown = 0; // 防止同一幀或連續幾毫秒內重複被咬斷多次
+                this.wormholeCooldown = 0;
+                this.buffs = {};
 
-                // 初始化蛇身節點 (嚴格與 Level 成正比)
                 this.segments = [];
                 const targetLen = this.getTargetSegmentCount();
                 for (let i = 0; i < targetLen; i++) {
@@ -702,21 +695,19 @@
                     });
                 }
 
-                // AI 決策計時器
                 this.aiTimer = 0;
                 this.aiTargetAngle = this.angle;
+                this.aiBoost = false;
             }
 
             get xpToNextLevel() {
                 return 40 + this.level * 25;
             }
 
-            // 蛇身長度與 Level 成正比的核心公式
             getTargetSegmentCount() {
-                return BASE_SEGMENTS + this.level * SEGMENTS_PER_LEVEL;
+                return Math.min(260, BASE_SEGMENTS + this.level * SEGMENTS_PER_LEVEL);
             }
 
-            // 蛇頭半徑隨 Level 略微變粗，增強視覺壓迫感
             get headRadius() {
                 return Math.min(34, 13 + this.level * 0.65);
             }
@@ -726,7 +717,7 @@
             }
 
             addXp(amount, showFloat = false) {
-                if (!this.alive) return;
+                if (!this.alive || !Number.isFinite(amount)) return;
                 const mult = this.buffs.frenzy > 0 ? 2 : 1;
                 const gained = amount * mult;
                 this.xp += gained;
@@ -735,9 +726,11 @@
                     spawnFloatingText(this.head.x, this.head.y - 25, `+${Math.round(gained)} XP`, '#00ff87', 14);
                 }
 
-                while (this.xp >= this.xpToNextLevel) {
+                let safetyLoop = 0;
+                while (this.xp >= this.xpToNextLevel && safetyLoop < 20) {
                     this.xp -= this.xpToNextLevel;
                     this.levelUp();
+                    safetyLoop++;
                 }
             }
 
@@ -750,14 +743,14 @@
                     screenShake = 6;
                     spawnFloatingText(this.head.x, this.head.y - 40, `LEVEL UP! LV.${this.level}`, '#ffd700', 22);
                 }
-                spawnParticles(this.head.x, this.head.y, this.theme.head, 16, 200);
+                spawnParticles(this.head.x, this.head.y, this.theme.head, 12, 200);
             }
 
-            // 失去等級（被咬斷尾巴或中降維打擊）
             loseLevels(lostCount, reasonText = '') {
                 if (lostCount <= 0) return;
                 this.level = Math.max(1, this.level - lostCount);
                 this.xp = 0;
+                this.hurtCooldown = 0.35; // 給予 0.35 秒受擊緩衝，避免瞬間連續觸發卡頓
                 this.syncSegmentsToLevel();
                 if (this.isPlayer) {
                     sfx.bite();
@@ -766,7 +759,6 @@
                 }
             }
 
-            // 強制同步蛇身節點數量與當前 Level 成正比
             syncSegmentsToLevel() {
                 const target = this.getTargetSegmentCount();
                 while (this.segments.length < target) {
@@ -781,9 +773,11 @@
             update(dt) {
                 if (!this.alive) return;
 
-                // 更新狀態計時器
                 if (this.invulnTimer > 0) this.invulnTimer -= dt;
                 if (this.stunTimer > 0) this.stunTimer -= dt;
+                if (this.hurtCooldown > 0) this.hurtCooldown -= dt;
+                if (this.wormholeCooldown > 0) this.wormholeCooldown -= dt;
+
                 for (const key in this.buffs) {
                     if (this.buffs[key] > 0) {
                         this.buffs[key] -= dt;
@@ -791,12 +785,10 @@
                     }
                 }
 
-                // 決定目標方向
                 let desiredAngle = this.angle;
                 let isBoosting = false;
 
                 if (this.isPlayer) {
-                    // 鍵盤左右轉向優先
                     if (input.keys['ArrowLeft'] || input.keys['KeyA']) {
                         this.angle -= 3.6 * dt;
                         desiredAngle = this.angle;
@@ -808,17 +800,15 @@
                     }
                     isBoosting = input.boosting || input.keys['Space'] || input.keys['ArrowUp'] || input.keys['KeyW'];
                 } else {
-                    // AI 智慧行為：尋找低等級獵物、閃避高等級天敵、搶奪高能肉塊
                     this.aiTimer -= dt;
                     if (this.aiTimer <= 0) {
-                        this.aiTimer = 0.15 + Math.random() * 0.15;
+                        this.aiTimer = 0.16 + Math.random() * 0.14;
                         this.computeAI();
                     }
                     desiredAngle = this.aiTargetAngle;
                     isBoosting = this.aiBoost;
                 }
 
-                // 加速消耗邏輯（只有 Level > 1 或有 XP 時才能加速）
                 let speed = this.baseSpeed + Math.min(70, this.level * 1.8);
                 if (this.stunTimer > 0) {
                     speed *= 0.45;
@@ -831,26 +821,22 @@
                             this.xp -= 4;
                         } else if (this.level > 1) {
                             this.level--;
-                            this.xp = this.xpToNextLevel - 8;
+                            this.xp = Math.max(0, this.xpToNextLevel - 8);
                             this.syncSegmentsToLevel();
                         }
-                        // 加速尾跡掉落微光粒子
                         const tail = this.segments[this.segments.length - 1];
                         spawnFood(tail.x, tail.y, 3, this.theme.body1, false);
                     }
                 }
 
-                // 世界異變：極速狂潮
                 if (worldEvent.active && worldEvent.type === 'SPEED_MANIA') {
                     speed *= 1.35;
                 }
 
-                // 平滑轉向（高等蛇轉向半徑略大，給低等靈活蛇走位反殺空間！）
                 const turnRate = Math.max(2.6, 5.2 - this.level * 0.06);
                 const diff = normalizeAngle(desiredAngle - this.angle);
-                this.angle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
+                this.angle = normalizeAngle(this.angle + Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt));
 
-                // 移動蛇頭
                 const head = this.head;
                 let vx = Math.cos(this.angle) * speed;
                 let vy = Math.sin(this.angle) * speed;
@@ -858,26 +844,32 @@
                 // 黑洞引力影響
                 for (const bh of blackHoles) {
                     const d = dist(head.x, head.y, bh.x, bh.y);
-                    if (d < bh.pullRadius && d > 10) {
+                    if (d < bh.pullRadius && d > 12) {
                         const pullForce = (1 - d / bh.pullRadius) * 240;
                         const pullAng = Math.atan2(bh.y - head.y, bh.x - head.x);
                         vx += Math.cos(pullAng) * pullForce;
                         vy += Math.sin(pullAng) * pullForce;
                     }
-                    // 黑洞核心傳送（隨機彈射到安全處並獲得能量）
-                    if (d < bh.coreRadius) {
-                        head.x = 300 + Math.random() * (WORLD_SIZE - 600);
-                        head.y = 300 + Math.random() * (WORLD_SIZE - 600);
-                        for (let s of this.segments) { s.x = head.x; s.y = head.y; }
+                    if (d <= bh.coreRadius) {
+                        const nx = 300 + Math.random() * (WORLD_SIZE - 600);
+                        const ny = 300 + Math.random() * (WORLD_SIZE - 600);
+                        for (let s of this.segments) { s.x = nx; s.y = ny; }
                         this.addXp(30, true);
-                        if (this.isPlayer) spawnFloatingText(head.x, head.y - 30, '黑洞躍遷！+30 XP', '#c77dff', 18);
+                        if (this.isPlayer) spawnFloatingText(nx, ny - 30, '黑洞躍遷！+30 XP', '#c77dff', 18);
+                        break;
                     }
                 }
 
                 head.x += vx * dt;
                 head.y += vy * dt;
 
-                // 邊界反彈保護（不會撞牆死，而是平滑折返）
+                // 座標異常防護
+                if (!Number.isFinite(head.x) || !Number.isFinite(head.y)) {
+                    head.x = WORLD_SIZE / 2;
+                    head.y = WORLD_SIZE / 2;
+                }
+
+                // 邊界反彈保護
                 const margin = 40;
                 if (head.x < margin) { head.x = margin; this.angle = normalizeAngle(Math.PI - this.angle); }
                 if (head.x > WORLD_SIZE - margin) { head.x = WORLD_SIZE - margin; this.angle = normalizeAngle(Math.PI - this.angle); }
@@ -886,27 +878,27 @@
 
                 // 蟲洞傳送檢測
                 for (const wh of wormholes) {
-                    if (dist(head.x, head.y, wh.x, wh.y) < wh.radius && (!this.wormholeCooldown || this.wormholeCooldown <= 0)) {
+                    if (dist(head.x, head.y, wh.x, wh.y) < wh.radius && this.wormholeCooldown <= 0) {
                         const partner = wormholes.find(w => w !== wh);
                         if (partner) {
                             const offsetX = partner.x - wh.x;
                             const offsetY = partner.y - wh.y;
                             for (const seg of this.segments) {
-                                seg.x += offsetX;
-                                seg.y += offsetY;
+                                seg.x = Math.max(margin, Math.min(WORLD_SIZE - margin, seg.x + offsetX));
+                                seg.y = Math.max(margin, Math.min(WORLD_SIZE - margin, seg.y + offsetY));
                             }
                             this.wormholeCooldown = 2.5;
-                            spawnParticles(partner.x, partner.y, '#00f3ff', 20, 220);
+                            spawnParticles(partner.x, partner.y, '#00f3ff', 15, 200);
                             if (this.isPlayer) {
                                 sfx.powerup();
                                 spawnFloatingText(partner.x, partner.y - 30, '蟲洞穿梭！', '#00f3ff', 18);
                             }
+                            break;
                         }
                     }
                 }
-                if (this.wormholeCooldown > 0) this.wormholeCooldown -= dt;
 
-                // 跟隨運動學：讓每一節身體精確保持 SEGMENT_SPACING 間距
+                // 跟隨運動學
                 for (let i = 1; i < this.segments.length; i++) {
                     const prev = this.segments[i - 1];
                     const curr = this.segments[i];
@@ -920,7 +912,7 @@
                     }
                 }
 
-                // 吞噬食物檢測（含磁鐵吸引效果）
+                // 吞噬食物
                 const magnetRange = this.buffs.magnet > 0 ? 220 : (this.headRadius + 16);
                 for (let i = foods.length - 1; i >= 0; i--) {
                     const f = foods[i];
@@ -938,7 +930,7 @@
                     }
                 }
 
-                // 拾取奇異道具
+                // 拾取道具
                 for (let i = powerups.length - 1; i >= 0; i--) {
                     const p = powerups[i];
                     if (dist(head.x, head.y, p.x, p.y) < this.headRadius + p.radius) {
@@ -953,13 +945,12 @@
                     sfx.powerup();
                     spawnFloatingText(this.head.x, this.head.y - 35, `${type.icon} ${type.name}!`, type.color, 20);
                 }
-                spawnParticles(this.head.x, this.head.y, type.color, 20, 220);
+                spawnParticles(this.head.x, this.head.y, type.color, 16, 220);
 
                 if (type.id === 'growth_surge') {
                     this.levelUp();
                     this.levelUp();
                 } else if (type.id === 'shrink_curse') {
-                    // 降維打擊彈：對範圍 750 內所有比自己等級高的蛇造成降級打擊！
                     let hitCount = 0;
                     for (const other of snakes) {
                         if (other !== this && other.alive && other.level > this.level) {
@@ -982,7 +973,6 @@
                 const head = this.head;
                 this.aiBoost = false;
 
-                // 1. 檢查附近威脅（等級比自己高的蛇）
                 let dangerSnake = null;
                 let minDangerDist = 340;
                 for (const other of snakes) {
@@ -997,14 +987,12 @@
                 }
 
                 if (dangerSnake) {
-                    // 逃離高等蛇
                     const awayAngle = Math.atan2(head.y - dangerSnake.head.y, head.x - dangerSnake.head.x);
                     this.aiTargetAngle = awayAngle + (Math.random() - 0.5) * 0.4;
                     if (minDangerDist < 200 && this.level > 2) this.aiBoost = true;
                     return;
                 }
 
-                // 2. 尋找獵物（等級比自己低的蛇頭或身體）
                 let preyTarget = null;
                 let minPreyDist = 420;
                 for (const other of snakes) {
@@ -1024,7 +1012,6 @@
                     return;
                 }
 
-                // 3. 尋找最近的高價值食物或道具
                 let bestFood = null;
                 let bestScore = -Infinity;
                 for (let i = 0; i < foods.length; i += 2) {
@@ -1047,7 +1034,6 @@
             }
         }
 
-        // 核心碰撞規則：高 Level 吞噬蛇頭（即死） & 咬斷低 Level 蛇身（按斷裂比例失去 Level）
         function resolveSnakeCollisions() {
             for (let i = 0; i < snakes.length; i++) {
                 const attacker = snakes[i];
@@ -1068,23 +1054,20 @@
                     // 1. 蛇頭對蛇頭碰撞
                     if (headDist < aRad + vRad - 4) {
                         if (attacker.level > victim.level) {
-                            // 高 Level 吃低 Level 蛇頭 -> 即時死亡！
                             killSnake(victim, attacker, `被 LV.${attacker.level} ${attacker.name} 吞噬蛇頭！`);
                         } else if (attacker.level === victim.level) {
-                            // 同等級相撞 -> 彈開並短暫暈眩
                             const pushAng = Math.atan2(aHead.y - vHead.y, aHead.x - vHead.x);
                             aHead.x += Math.cos(pushAng) * 18;
                             aHead.y += Math.sin(pushAng) * 18;
                             attacker.angle = pushAng;
                             attacker.stunTimer = 0.45;
-                            spawnParticles((aHead.x + vHead.x) / 2, (aHead.y + vHead.y) / 2, '#ffffff', 8, 120);
+                            spawnParticles((aHead.x + vHead.x) / 2, (aHead.y + vHead.y) / 2, '#ffffff', 6, 120);
                         }
                         continue;
                     }
 
-                    // 2. 高 Level 蛇頭咬中低 Level 蛇身 -> 咬斷該截蛇身，失去該長度的 Level！
-                    if (attacker.level > victim.level) {
-                        // 從第 2 節開始檢查蛇身（避免與頭部判定重疊）
+                    // 2. 高 Level 蛇頭咬中低 Level 蛇身
+                    if (attacker.level > victim.level && victim.hurtCooldown <= 0) {
                         for (let sIdx = 2; sIdx < victim.segments.length; sIdx++) {
                             const seg = victim.segments[sIdx];
                             const segRad = Math.max(6, vRad * (1 - (sIdx / victim.segments.length) * 0.45));
@@ -1098,35 +1081,31 @@
             }
         }
 
-        // 咬斷蛇身處理函數
         function severSnakeBody(victim, cutIndex, attacker) {
             const totalSegs = victim.segments.length;
             const severedCount = totalSegs - cutIndex;
             if (severedCount <= 0) return;
 
-            // 計算被咬斷的長度對應失去多少 Level (長度與 Level 成正比)
             const lostLevels = Math.max(1, Math.round(severedCount / SEGMENTS_PER_LEVEL));
 
-            // 將被咬斷的節點轉化為高能霓虹肉塊！
-            for (let k = cutIndex; k < totalSegs; k += 2) {
+            // 限制單次最多生成 15 顆肉塊，防止長蛇斷尾瞬間產生過多物件
+            const step = Math.max(2, Math.ceil(severedCount / 15));
+            for (let k = cutIndex; k < totalSegs; k += step) {
                 const seg = victim.segments[k];
                 spawnFood(seg.x + (Math.random() - 0.5) * 15, seg.y + (Math.random() - 0.5) * 15, 18, victim.theme.body1, true);
-                spawnParticles(seg.x, seg.y, victim.theme.head, 3, 130);
+                spawnParticles(seg.x, seg.y, victim.theme.head, 2, 130);
             }
 
-            // 受害者扣除對應 Level 並縮短蛇身
             victim.loseLevels(lostLevels, `蛇身被咬斷！失去 ${lostLevels} 級`);
 
-            // 給攻擊者短暫無敵幀避免同一幀重複判定，並獎勵少量XP
             attacker.addXp(lostLevels * 15, true);
             if (attacker.isPlayer) {
                 sfx.bite();
                 screenShake = 8;
-                spawnFloatingText(victim.segments[cutIndex].x, victim.segments[cutIndex].y - 20, `✂️ 咬斷敵身！-${lostLevels} LV`, '#ffd700', 18);
+                spawnFloatingText(victim.segments[Math.min(cutIndex, victim.segments.length - 1)].x, victim.head.y - 20, `✂️ 咬斷敵身！-${lostLevels} LV`, '#ffd700', 18);
             }
         }
 
-        // 蛇死亡處理（被高 Level 吞噬頭部）
         function killSnake(victim, killer, reason) {
             if (!victim.alive) return;
             victim.alive = false;
@@ -1141,12 +1120,13 @@
                 }
             }
 
-            // 整條蛇化為豐盛能量盛宴
-            for (let i = 0; i < victim.segments.length; i += 2) {
+            // 限制死亡掉落肉塊最多 25 顆，保證大蛇死亡不卡頓
+            const step = Math.max(2, Math.ceil(victim.segments.length / 25));
+            for (let i = 0; i < victim.segments.length; i += step) {
                 const seg = victim.segments[i];
                 spawnFood(seg.x, seg.y, 16 + Math.floor(victim.level * 0.8), victim.theme.head, true);
             }
-            spawnParticles(victim.head.x, victim.head.y, victim.theme.head, 35, 280);
+            spawnParticles(victim.head.x, victim.head.y, victim.theme.head, 24, 260);
 
             if (victim.isPlayer) {
                 sfx.die();
@@ -1155,7 +1135,6 @@
             }
         }
 
-        // 周期性世界異變事件
         function updateWorldEvents(dt) {
             const banner = document.getElementById('eventBanner');
             if (!worldEvent.active) {
@@ -1174,7 +1153,7 @@
                     banner.classList.add('show');
 
                     if (chosen.type === 'METEOR_SHOWER') {
-                        for (let i = 0; i < 120; i++) spawnFood(undefined, undefined, 22, '#ffd700', true);
+                        for (let i = 0; i < 80; i++) spawnFood(undefined, undefined, 22, '#ffd700', true);
                     }
                 }
             } else {
@@ -1187,7 +1166,6 @@
             }
         }
 
-        // 初始化一局新遊戲
         function startGame() {
             sfx.init();
             const rawName = document.getElementById('playerNameInput').value.trim();
@@ -1207,11 +1185,9 @@
                 { x: WORLD_SIZE * 0.75, y: WORLD_SIZE * 0.25, radius: 42, color: '#ff007f' }
             ];
 
-            // 創建玩家
             player = new Snake(playerName, WORLD_SIZE / 2, WORLD_SIZE / 2, 1, true);
             snakes.push(player);
 
-            // 生成生態系統：包含低級幼蛇、中級獵手與少數高級霸主
             for (let i = 0; i < MAX_BOTS; i++) {
                 spawnBotSnake();
             }
@@ -1222,24 +1198,34 @@
             worldEvent = { active: false, type: null, timer: 15, duration: 0 };
             document.getElementById('eventBanner').classList.remove('show');
             document.getElementById('menuModal').style.display = 'none';
+            hudUpdateTimer = 0;
+            updateHUD();
             gameState = 'PLAYING';
         }
 
+        // 修復死迴圈：限制最多嘗試 15 次尋找遠離玩家的位置
         function spawnBotSnake() {
             const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-            // 多樣化等級分佈：大部分 1~5 級，少數 6~12 級，極少數 14~18 級巨蟒
             const roll = Math.random();
             let lv = 1;
             if (roll > 0.90) lv = 12 + Math.floor(Math.random() * 7);
             else if (roll > 0.65) lv = 5 + Math.floor(Math.random() * 6);
             else lv = 1 + Math.floor(Math.random() * 4);
 
-            // 確保不在玩家臉上刷新
-            let x, y;
-            do {
-                x = 200 + Math.random() * (WORLD_SIZE - 400);
-                y = 200 + Math.random() * (WORLD_SIZE - 400);
-            } while (player && player.alive && dist(x, y, player.head.x, player.head.y) < 550);
+            let x = 200 + Math.random() * (WORLD_SIZE - 400);
+            let y = 200 + Math.random() * (WORLD_SIZE - 400);
+
+            if (player && player.alive) {
+                for (let attempt = 0; attempt < 15; attempt++) {
+                    const tx = 200 + Math.random() * (WORLD_SIZE - 400);
+                    const ty = 200 + Math.random() * (WORLD_SIZE - 400);
+                    if (dist(tx, ty, player.head.x, player.head.y) >= 550) {
+                        x = tx;
+                        y = ty;
+                        break;
+                    }
+                }
+            }
 
             snakes.push(new Snake(name, x, y, lv, false));
         }
@@ -1254,7 +1240,6 @@
             document.getElementById('menuModal').style.display = 'flex';
         }
 
-        // 更新所有 HUD 元素
         function updateHUD() {
             if (!player) return;
             document.getElementById('hudLevel').textContent = `LV. ${player.level}`;
@@ -1264,7 +1249,6 @@
             document.getElementById('hudLength').textContent = `蛇身長度: ${player.segments.length}`;
             document.getElementById('hudKills').textContent = `擊殺: ${player.kills}`;
 
-            // Buff 顯示
             const buffsDiv = document.getElementById('hudBuffs');
             buffsDiv.innerHTML = '';
             const buffLabels = { magnet: '🧲 磁場', ghost: '👻 幽靈', frenzy: '🔥 雙倍' };
@@ -1275,7 +1259,6 @@
                 buffsDiv.appendChild(pill);
             }
 
-            // 排行榜
             const sorted = [...snakes].filter(s => s.alive).sort((a, b) => b.level - a.level || b.xp - a.xp).slice(0, 6);
             const lbList = document.getElementById('lbList');
             lbList.innerHTML = sorted.map((s, idx) => `
@@ -1286,7 +1269,6 @@
             `).join('');
         }
 
-        // 主渲染循環
         function render() {
             ctx.fillStyle = '#090a0f';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1294,13 +1276,11 @@
             if (player && player.alive) {
                 camera.x = lerp(camera.x, player.head.x, 0.12);
                 camera.y = lerp(camera.y, player.head.y, 0.12);
-                // 隨著等級提升，鏡頭自動略微拉遠以獲得更廣闊戰略視野
                 const targetZoom = Math.max(0.55, 1.02 - player.level * 0.012);
                 camera.zoom = lerp(camera.zoom, targetZoom, 0.05);
             }
 
             ctx.save();
-            // 螢幕震動特效
             let shakeX = 0, shakeY = 0;
             if (screenShake > 0) {
                 shakeX = (Math.random() - 0.5) * screenShake;
@@ -1313,37 +1293,36 @@
             ctx.scale(camera.zoom, camera.zoom);
             ctx.translate(-camera.x, -camera.y);
 
-            // 1. 繪製六邊形/科技網格背景
-            drawGrid();
+            // 計算視野裁剪邊界，只繪製螢幕可見範圍內的物件以提升流暢度
+            const halfW = (canvas.width / camera.zoom) * 0.65;
+            const halfH = (canvas.height / camera.zoom) * 0.65;
+            const minX = camera.x - halfW;
+            const maxX = camera.x + halfW;
+            const minY = camera.y - halfH;
+            const maxY = camera.y + halfH;
 
-            // 2. 繪製世界邊界能量牆
+            drawGrid(minX, maxX, minY, maxY);
+
             ctx.strokeStyle = '#ff007f';
             ctx.lineWidth = 8;
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = '#ff007f';
             ctx.strokeRect(0, 0, WORLD_SIZE, WORLD_SIZE);
-            ctx.shadowBlur = 0;
 
-            // 3. 繪製蟲洞與黑洞
             drawAnomalies();
 
-            // 4. 繪製食物
+            // 繪製視野內食物
             for (const f of foods) {
+                if (f.x < minX || f.x > maxX || f.y < minY || f.y > maxY) continue;
                 f.pulse += 0.08;
                 const r = f.radius + Math.sin(f.pulse) * 1.2;
                 ctx.beginPath();
                 ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
                 ctx.fillStyle = f.color;
-                if (f.isMeat) {
-                    ctx.shadowBlur = 12;
-                    ctx.shadowColor = f.color;
-                }
                 ctx.fill();
-                ctx.shadowBlur = 0;
             }
 
-            // 5. 繪製奇異道具
+            // 繪製道具
             for (const p of powerups) {
+                if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) continue;
                 p.bob += 0.06;
                 const yOff = Math.sin(p.bob) * 4;
                 ctx.save();
@@ -1353,8 +1332,6 @@
                 ctx.fill();
                 ctx.lineWidth = 2.5;
                 ctx.strokeStyle = p.type.color;
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = p.type.color;
                 ctx.stroke();
 
                 ctx.font = '18px sans-serif';
@@ -1364,13 +1341,11 @@
                 ctx.restore();
             }
 
-            // 6. 繪製所有蛇（先畫低等級，再畫高等級，突顯霸主壓迫感）
             const renderOrder = [...snakes].filter(s => s.alive).sort((a, b) => a.level - b.level);
             for (const s of renderOrder) {
-                drawSnake(s);
+                drawSnake(s, minX, maxX, minY, maxY);
             }
 
-            // 7. 繪製粒子特效
             for (let i = particles.length - 1; i >= 0; i--) {
                 const pt = particles[i];
                 ctx.globalAlpha = Math.max(0, pt.life);
@@ -1381,33 +1356,26 @@
             }
             ctx.globalAlpha = 1;
 
-            // 8. 繪製浮動戰鬥文字
             for (const ft of floatingTexts) {
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, ft.life);
                 ctx.font = `800 ${ft.size}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.fillStyle = ft.color;
-                ctx.shadowBlur = 6;
-                ctx.shadowColor = '#000';
                 ctx.fillText(ft.text, ft.x, ft.y);
                 ctx.restore();
             }
 
             ctx.restore();
-
-            // 繪製雷達小地圖
             drawMinimap();
         }
 
-        function drawGrid() {
+        function drawGrid(minX, maxX, minY, maxY) {
             const step = 100;
-            const viewW = (canvas.width / camera.zoom) * 0.6;
-            const viewH = (canvas.height / camera.zoom) * 0.6;
-            const startX = Math.max(0, Math.floor((camera.x - viewW) / step) * step);
-            const endX = Math.min(WORLD_SIZE, Math.ceil((camera.x + viewW) / step) * step);
-            const startY = Math.max(0, Math.floor((camera.y - viewH) / step) * step);
-            const endY = Math.min(WORLD_SIZE, Math.ceil((camera.y + viewH) / step) * step);
+            const startX = Math.max(0, Math.floor(minX / step) * step);
+            const endX = Math.min(WORLD_SIZE, Math.ceil(maxX / step) * step);
+            const startY = Math.max(0, Math.floor(minY / step) * step);
+            const endY = Math.min(WORLD_SIZE, Math.ceil(maxY / step) * step);
 
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
             ctx.lineWidth = 1;
@@ -1424,7 +1392,6 @@
         }
 
         function drawAnomalies() {
-            // 黑洞
             for (const bh of blackHoles) {
                 bh.rot += 0.03;
                 const grad = ctx.createRadialGradient(bh.x, bh.y, bh.coreRadius * 0.5, bh.x, bh.y, bh.pullRadius);
@@ -1444,7 +1411,6 @@
                 ctx.stroke();
             }
 
-            // 蟲洞
             for (const wh of wormholes) {
                 ctx.save();
                 ctx.beginPath();
@@ -1460,7 +1426,10 @@
             }
         }
 
-        function drawSnake(s) {
+        function drawSnake(s, minX, maxX, minY, maxY) {
+            const head = s.head;
+            const headRad = s.headRadius;
+
             ctx.save();
             if (s.invulnTimer > 0) {
                 ctx.globalAlpha = 0.55 + Math.sin(performance.now() * 0.02) * 0.3;
@@ -1468,11 +1437,9 @@
                 ctx.globalAlpha = 0.4;
             }
 
-            const headRad = s.headRadius;
-
-            // 從尾到頭繪製蛇身（漸變鱗片質感）
             for (let i = s.segments.length - 1; i >= 1; i--) {
                 const seg = s.segments[i];
+                if (seg.x < minX - 50 || seg.x > maxX + 50 || seg.y < minY - 50 || seg.y > maxY + 50) continue;
                 const ratio = i / s.segments.length;
                 const r = Math.max(5, headRad * (1 - ratio * 0.52));
 
@@ -1482,57 +1449,50 @@
                 ctx.fill();
             }
 
-            // 繪製蛇頭
-            const head = s.head;
-            ctx.beginPath();
-            ctx.arc(head.x, head.y, headRad, 0, Math.PI * 2);
-            ctx.fillStyle = s.theme.head;
-            ctx.shadowBlur = 18;
-            ctx.shadowColor = s.theme.glow;
-            ctx.fill();
-            ctx.shadowBlur = 0;
-
-            // 繪製發光雙眼
-            const eyeOffset = headRad * 0.45;
-            const eyeSide = headRad * 0.48;
-            const eyeRad = Math.max(2.5, headRad * 0.22);
-
-            for (const side of [-1, 1]) {
-                const ex = head.x + Math.cos(s.angle) * eyeOffset - Math.sin(s.angle) * eyeSide * side;
-                const ey = head.y + Math.sin(s.angle) * eyeOffset + Math.cos(s.angle) * eyeSide * side;
+            if (head.x >= minX - 80 && head.x <= maxX + 80 && head.y >= minY - 80 && head.y <= maxY + 80) {
                 ctx.beginPath();
-                ctx.arc(ex, ey, eyeRad, 0, Math.PI * 2);
-                ctx.fillStyle = '#fff';
+                ctx.arc(head.x, head.y, headRad, 0, Math.PI * 2);
+                ctx.fillStyle = s.theme.head;
                 ctx.fill();
 
-                ctx.beginPath();
-                ctx.arc(ex + Math.cos(s.angle) * 1.5, ey + Math.sin(s.angle) * 1.5, eyeRad * 0.55, 0, Math.PI * 2);
-                ctx.fillStyle = '#090a0f';
-                ctx.fill();
-            }
+                const eyeOffset = headRad * 0.45;
+                const eyeSide = headRad * 0.48;
+                const eyeRad = Math.max(2.5, headRad * 0.22);
 
-            // 繪製頭頂等級標籤與獵殺/危險指示器
-            ctx.globalAlpha = 1;
-            let tagColor = '#ffffff';
-            let statusIcon = '';
-            if (player && player.alive && !s.isPlayer) {
-                if (s.level > player.level) {
-                    tagColor = '#ff4d94'; // 危險天敵（紅色警告）
-                    statusIcon = '⚠️ ';
-                } else if (s.level < player.level) {
-                    tagColor = '#00ff87'; // 可吞噬獵物（綠色獵殺）
-                    statusIcon = '🎯 ';
-                } else {
-                    tagColor = '#ffd700'; // 同級競爭者
+                for (const side of [-1, 1]) {
+                    const ex = head.x + Math.cos(s.angle) * eyeOffset - Math.sin(s.angle) * eyeSide * side;
+                    const ey = head.y + Math.sin(s.angle) * eyeOffset + Math.cos(s.angle) * eyeSide * side;
+                    ctx.beginPath();
+                    ctx.arc(ex, ey, eyeRad, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+
+                    ctx.beginPath();
+                    ctx.arc(ex + Math.cos(s.angle) * 1.5, ey + Math.sin(s.angle) * 1.5, eyeRad * 0.55, 0, Math.PI * 2);
+                    ctx.fillStyle = '#090a0f';
+                    ctx.fill();
                 }
-            }
 
-            ctx.font = 'bold 13px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillStyle = tagColor;
-            ctx.shadowBlur = 4;
-            ctx.shadowColor = '#000';
-            ctx.fillText(`${statusIcon}[LV.${s.level}] ${s.name}`, head.x, head.y - headRad - 12);
+                ctx.globalAlpha = 1;
+                let tagColor = '#ffffff';
+                let statusIcon = '';
+                if (player && player.alive && !s.isPlayer) {
+                    if (s.level > player.level) {
+                        tagColor = '#ff4d94';
+                        statusIcon = '⚠️ ';
+                    } else if (s.level < player.level) {
+                        tagColor = '#00ff87';
+                        statusIcon = '🎯 ';
+                    } else {
+                        tagColor = '#ffd700';
+                    }
+                }
+
+                ctx.font = 'bold 13px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = tagColor;
+                ctx.fillText(`${statusIcon}[LV.${s.level}] ${s.name}`, head.x, head.y - headRad - 12);
+            }
 
             ctx.restore();
         }
@@ -1544,7 +1504,6 @@
 
             const scale = w / WORLD_SIZE;
 
-            // 繪製蟲洞與黑洞位置
             for (const bh of blackHoles) {
                 mCtx.fillStyle = '#c77dff';
                 mCtx.beginPath();
@@ -1552,7 +1511,6 @@
                 mCtx.fill();
             }
 
-            // 繪製其他蛇
             for (const s of snakes) {
                 if (!s.alive) continue;
                 mCtx.beginPath();
@@ -1568,16 +1526,14 @@
             }
         }
 
-        // 遊戲主循環
         let lastTime = performance.now();
         function gameLoop(now) {
-            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
             lastTime = now;
 
             if (gameState === 'PLAYING') {
                 updateWorldEvents(dt);
 
-                // 補充生態食物、道具與 AI 蛇
                 while (foods.length < MAX_FOOD) spawnFood();
                 while (powerups.length < MAX_POWERUPS) spawnPowerup();
                 snakes = snakes.filter(s => s.alive || s.isPlayer);
@@ -1586,7 +1542,6 @@
                 for (const s of snakes) s.update(dt);
                 resolveSnakeCollisions();
 
-                // 更新粒子與飄字
                 for (let i = particles.length - 1; i >= 0; i--) {
                     const pt = particles[i];
                     pt.x += pt.vx * dt;
@@ -1601,14 +1556,18 @@
                     if (ft.life <= 0) floatingTexts.splice(i, 1);
                 }
 
-                updateHUD();
+                // 每 0.2 秒刷新一次 DOM UI，避免每幀重排造成手機與電腦卡頓
+                hudUpdateTimer -= dt;
+                if (hudUpdateTimer <= 0) {
+                    hudUpdateTimer = 0.2;
+                    updateHUD();
+                }
             }
 
             render();
             requestAnimationFrame(gameLoop);
         }
 
-        // 跨裝置事件綁定 (Desktop Mouse + Keyboard & Mobile Touch)
         window.addEventListener('mousemove', e => {
             input.hasPointer = true;
             input.pointerX = e.clientX;
@@ -1629,7 +1588,6 @@
             input.keys[e.code] = false;
         });
 
-        // 手機觸控引導
         canvas.addEventListener('touchstart', e => {
             if (e.touches.length > 0) {
                 input.hasPointer = true;
@@ -1660,7 +1618,6 @@
 
         document.getElementById('startBtn').addEventListener('click', startGame);
 
-        // 啟動背景渲染循環
         requestAnimationFrame(gameLoop);
     </script>
 </body>
