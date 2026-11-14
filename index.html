@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>進化論</title>
+    <style>
+        :root {
+            --bg-dark: #090a0f;
+            --panel-bg: rgba(18, 22, 33, 0.85);
+            --accent-cyan: #00f3ff;
+            --accent-pink: #ff007f;
+            --accent-gold: #ffd700;
+            --text-main: #f0f4f8;
+            --text-muted: #8a99ad;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            touch-action: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* HUD & UI Overlays */
+        .hud {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .stats-card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 12px 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .level-badge {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--accent-cyan), #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.5px;
+        }
+
+        .xp-bar-container {
+            width: 180px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .xp-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-pink));
+            transition: width 0.2s ease-out;
+        }
+
+        .sub-stats {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            gap: 12px;
+        }
+
+        .active-buffs {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+        }
+
+        .buff-pill {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 12px;
+            background: rgba(255, 215, 0, 0.2);
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { opacity: 0.7; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1.03); }
+        }
+
+        /* Leaderboard */
+        .leaderboard {
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 12px 18px;
+            min-width: 190px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .leaderboard h3 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 4px;
+        }
+
+        .lb-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            padding: 3px 0;
+        }
+
+        .lb-row.player {
+            color: var(--accent-cyan);
+            font-weight: 700;
+        }
+
+        /* Minimap */
+        .minimap-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 140px;
+            height: 140px;
+            background: rgba(10, 12, 18, 0.8);
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 10;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+        }
+
+        #minimapCanvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Event Banner */
+        #eventBanner {
+            position: fixed;
+            top: 95px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 0, 127, 0.2);
+            border: 1px solid var(--accent-pink);
+            backdrop-filter: blur(8px);
+            padding: 8px 22px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.5px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            z-index: 15;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(255, 0, 127, 0.4);
+        }
+
+        #eventBanner.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(5px);
+        }
+
+        /* Mobile & Desktop Action Buttons */
+        .controls-hint {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            font-size: 12px;
+            color: var(--text-muted);
+            background: var(--panel-bg);
+            padding: 8px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #boostBtn {
+            position: fixed;
+            bottom: 30px;
+            right: 180px;
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,243,255,0.3) 0%, rgba(0,243,255,0.05) 100%);
+            border: 2px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            font-weight: 800;
+            font-size: 13px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+            cursor: pointer;
+        }
+
+        #boostBtn:active, #boostBtn.active {
+            background: var(--accent-cyan);
+            color: #000;
+            transform: scale(0.92);
+        }
+
+        /* Start / Game Over Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(6, 8, 13, 0.82);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .modal-card {
+            background: linear-gradient(145deg, #131724, #0d1019);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 24px;
+            padding: 36px;
+            max-width: 520px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 40px rgba(0, 243, 255, 0.1);
+        }
+
+        .modal-title {
+            font-size: 34px;
+            font-weight: 900;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #00f3ff, #ff007f, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .modal-subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+
+        .rules-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            text-align: left;
+            margin-bottom: 24px;
+        }
+
+        .rule-box {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .rule-box h4 {
+            font-size: 13px;
+            color: var(--accent-cyan);
+            margin-bottom: 4px;
+        }
+
+        .rule-box p {
+            font-size: 12px;
+            color: #cbd5e1;
+            line-height: 1.4;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 14px 18px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.4);
+            color: #fff;
+            font-size: 16px;
+            text-align: center;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            border-radius: 14px;
+            border: none;
+            background: linear-gradient(90deg, var(--accent-cyan), #0077ff);
+            color: #050811;
+            font-size: 18px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            box-shadow: 0 8px 25px rgba(0, 243, 255, 0.35);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(0, 243, 255, 0.5);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .death-stats {
+            background: rgba(255, 0, 127, 0.1);
+            border: 1px solid rgba(255, 0, 127, 0.3);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .death-reason {
+            color: #ff4d94;
+            font-weight: 700;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        @media (max-width: 768px) {
+            .hud { padding: 10px 12px; }
+            .stats-card { padding: 8px 12px; }
+            .level-badge { font-size: 18px; }
+            .xp-bar-container { width: 120px; }
+            .leaderboard { min-width: 140px; padding: 8px 12px; }
+            .leaderboard h3 { font-size: 11px; }
+            .lb-row { font-size: 11px; }
+            .minimap-container { width: 95px; height: 95px; bottom: 15px; right: 15px; }
+            .controls-hint { display: none; }
+            #boostBtn { display: flex; right: 125px; bottom: 22px; width: 64px; height: 64px; }
+            .rules-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div class="hud">
+        <div class="stats-card">
+            <div style="display:flex; align-items:baseline; gap:10px;">
+                <span class="level-badge" id="hudLevel">LV. 1</span>
+                <span style="font-size:12px; color:#94a3b8;" id="hudTitle">微光幼蛇</span>
+            </div>
+            <div class="xp-bar-container">
+                <div class="xp-bar-fill" id="hudXpBar"></div>
+            </div>
+            <div class="sub-stats">
+                <span id="hudLength">長度: 12</span>
+                <span id="hudKills">擊殺: 0</span>
+            </div>
+            <div class="active-buffs" id="hudBuffs"></div>
+        </div>
+
+        <div class="leaderboard">
+            <h3>🏆 食物鏈霸主</h3>
+            <div id="lbList"></div>
+        </div>
+    </div>
+
+    <div id="eventBanner">⚡ 異變事件：全場重力黑洞開啟！</div>
+
+    <div class="minimap-container">
+        <canvas id="minimapCanvas" width="140" height="140"></canvas>
+    </div>
+
+    <div class="controls-hint">
+        🖱️ 滑鼠/方向鍵引導方向 ｜ 🚀 左鍵 / 空白鍵 消耗能量加速 ｜ ✂️ 咬斷低等蛇身！
+    </div>
+
+    <button id="boostBtn">加速</button>
+
+    <!-- Start / Death Screen -->
+    <div class="modal-overlay" id="menuModal">
+        <div class="modal-card">
+            <h1 class="modal-title">吞噬進化論</h1>
+            <p class="modal-subtitle">弱肉強食的霓虹深淵 —— 蛇身長度與等級成正比，高 Level 絕對壓制低 Level！</p>
+
+            <div class="death-stats" id="deathStats">
+                <div class="death-reason" id="deathReason">你被高等巨蟒吞噬了！</div>
+                <div style="font-size:14px; color:#e2e8f0;" id="finalScoreText">最高等級: LV.1 | 擊殺數: 0</div>
+            </div>
+
+            <div class="rules-grid">
+                <div class="rule-box">
+                    <h4>👑 絕對等級壓制</h4>
+                    <p><b>高 LV 吃低 LV</b>：咬中低等蛇頭<b>即時秒殺</b>並吸收其能量！同級相撞會彈開暈眩。</p>
+                </div>
+                <div class="rule-box">
+                    <h4>✂️ 斷尾求生機制</h4>
+                    <p>高等蛇咬中低等蛇身，會<b>直接咬斷</b>該截身體！低等蛇失去對應等級與長度，斷尾化為高能肉塊。</p>
+                </div>
+                <div class="rule-box">
+                    <h4>🌀 奇異道具與異變</h4>
+                    <p><b>磁力吸星、幽靈穿身、狂暴倍增、時空黑洞、甚至「降維毒藥」</b>（讓高等蛇暫時縮小）。</p>
+                </div>
+                <div class="rule-box">
+                    <h4>📱 跨裝置直覺操控</h4>
+                    <p>電腦滑鼠移動 + 左鍵/空白鍵加速；手機支援虛擬搖桿拖曳 + 獨立加速按鈕。</p>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <input type="text" id="playerNameInput" placeholder="輸入你的代號 (例如: 深淵吞噬者)" maxlength="12" value="霓虹獵手">
+            </div>
+
+            <button class="btn-primary" id="startBtn">進入獵殺場</button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * 離線單文件貪食蛇：《吞噬進化論 Neon Ouroboros》
+         * 核心機制：
+         * 1. 等級與蛇身長度嚴格成正比 (Segments = BASE_LEN + Level * LEN_PER_LEVEL)
+         * 2. 只有高 Level 可吃掉低 Level 蛇頭（即時死亡）或咬斷低 Level 蛇身（按斷裂比例扣除 Level 與長度，掉落能量塊）
+         * 3. 豐富奇異玩法：黑洞引力、傳送蟲洞、磁鐵、幽靈狀態、降維毒藥（暫時降級反殺機制！）、周期性世界異變事件
+         * 4. 純原生 Canvas 2D 高幀率渲染 + Web Audio API 離線合成音效
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const minimapCanvas = document.getElementById('minimapCanvas');
+        const mCtx = minimapCanvas.getContext('2d');
+
+        // 遊戲世界設定
+        const WORLD_SIZE = 3600;
+        const BASE_SEGMENTS = 10;
+        const SEGMENTS_PER_LEVEL = 4;
+        const SEGMENT_SPACING = 9;
+        const MAX_BOTS = 26;
+        const MAX_FOOD = 380;
+        const MAX_POWERUPS = 18;
+
+        // 蛇的稱號階級
+        const LEVEL_TITLES = [
+            { lv: 1, title: "微光幼蛇" },
+            { lv: 3, title: "霓虹獵手" },
+            { lv: 6, title: "深淵蝰蛇" },
+            { lv: 10, title: "暗影巨蟒" },
+            { lv: 15, title: "星雲蛟龍" },
+            { lv: 22, title: "虛空利維坦" },
+            { lv: 30, title: "吞世古神" }
+        ];
+
+        // 調色盤
+        const SNAKE_THEMES = [
+            { head: '#00f3ff', body1: '#00b4d8', body2: '#0077b6', glow: 'rgba(0, 243, 255, 0.5)' },
+            { head: '#ff007f', body1: '#ff4d94', body2: '#b5179e', glow: 'rgba(255, 0, 127, 0.5)' },
+            { head: '#ffd700', body1: '#ffb703', body2: '#fb8500', glow: 'rgba(255, 215, 0, 0.5)' },
+            { head: '#00ff87', body1: '#38b000', body2: '#007200', glow: 'rgba(0, 255, 135, 0.5)' },
+            { head: '#c77dff', body1: '#9d4edd', body2: '#5a189a', glow: 'rgba(199, 125, 255, 0.5)' },
+            { head: '#ff5400', body1: '#ff6d00', body2: '#e36414', glow: 'rgba(255, 84, 0, 0.5)' },
+            { head: '#4cc9f0', body1: '#4361ee', body2: '#3a0ca3', glow: 'rgba(76, 201, 240, 0.5)' }
+        ];
+
+        const BOT_NAMES = [
+            "影牙", "量子蟒", "暴走代碼", "深海幽靈", "零號機", "星塵吞噬者", "電光毒龍",
+            "賽博蝰蛇", "黑洞行者", "赤紅彗星", "虛空之眼", "重力扭曲", "超新星", "暗物質",
+            "機械巨蟒", "極光獵人", "混沌之蛇", "幻影刺客", "泰坦巨獸", "奧羅波羅斯"
+        ];
+
+        // 奇異道具定義
+        const POWERUP_TYPES = [
+            { id: 'magnet', name: '引力磁場', icon: '🧲', color: '#00f3ff', duration: 10 },
+            { id: 'ghost', name: '相位幽靈', icon: '👻', color: '#c77dff', duration: 7 },
+            { id: 'frenzy', name: '雙倍吞噬', icon: '🔥', color: '#ff5400', duration: 10 },
+            { id: 'shrink_curse', name: '降維打擊彈', icon: '☣️', color: '#38b000', duration: 0 }, // 立即向周圍高等蛇發射降維波
+            { id: 'growth_surge', name: '基因突變', icon: '🧬', color: '#ffd700', duration: 0 }  // 立即提升 2 Level
+        ];
+
+        // 離線 Web Audio 音效合成器
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+            }
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) this.ctx = new AudioContext();
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+            playTone(freq, type, duration, vol = 0.1, slideFreq = null) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                if (slideFreq) {
+                    osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
+                }
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + duration);
+            }
+            eat() { this.playTone(520 + Math.random() * 180, 'sine', 0.08, 0.06, 880); }
+            levelUp() {
+                this.playTone(440, 'triangle', 0.15, 0.12, 660);
+                setTimeout(() => this.playTone(660, 'triangle', 0.25, 0.12, 880), 100);
+            }
+            bite() { this.playTone(180, 'sawtooth', 0.22, 0.16, 65); }
+            kill() {
+                this.playTone(300, 'square', 0.15, 0.14, 120);
+                setTimeout(() => this.playTone(600, 'sine', 0.3, 0.14, 900), 90);
+            }
+            powerup() { this.playTone(400, 'sine', 0.3, 0.12, 1100); }
+            die() { this.playTone(260, 'sawtooth', 0.6, 0.2, 45); }
+        }
+        const sfx = new SoundFX();
+
+        // 遊戲全局狀態
+        let gameState = 'MENU'; // MENU, PLAYING
+        let snakes = [];
+        let foods = [];
+        let powerups = [];
+        let particles = [];
+        let floatingTexts = [];
+        let blackHoles = [];
+        let wormholes = [];
+        let player = null;
+        let camera = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2, zoom: 1 };
+        let screenShake = 0;
+
+        // 世界異變系統
+        let worldEvent = {
+            active: false,
+            type: null,
+            timer: 20, // 距離下次事件的倒數
+            duration: 0
+        };
+
+        // 輸入控制狀態
+        let input = {
+            targetAngle: 0,
+            hasPointer: false,
+            pointerX: 0,
+            pointerY: 0,
+            boosting: false,
+            keys: {}
+        };
+
+        // 調整畫布尺寸
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 工具函數
+        function dist(x1, y1, x2, y2) {
+            return Math.hypot(x2 - x1, y2 - y1);
+        }
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+        function normalizeAngle(a) {
+            while (a > Math.PI) a -= Math.PI * 2;
+            while (a < -Math.PI) a += Math.PI * 2;
+            return a;
+        }
+        function getTitleForLevel(lv) {
+            let res = LEVEL_TITLES[0].title;
+            for (const item of LEVEL_TITLES) {
+                if (lv >= item.lv) res = item.title;
+            }
+            return res;
+        }
+
+        function spawnFloatingText(x, y, text, color = '#fff', size = 16) {
+            floatingTexts.push({ x, y, text, color, size, life: 1.0, vy: -45 });
+        }
+
+        function spawnParticles(x, y, color, count = 12, speed = 160) {
+            for (let i = 0; i < count; i++) {
+                const ang = Math.random() * Math.PI * 2;
+                const spd = (0.3 + Math.random() * 0.7) * speed;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(ang) * spd,
+                    vy: Math.sin(ang) * spd,
+                    color,
+                    size: 2 + Math.random() * 4,
+                    life: 0.6 + Math.random() * 0.5
+                });
+            }
+        }
+
+        // 食物生成器
+        function spawnFood(x, y, value = 10, color = null, isMeat = false) {
+            const palette = ['#00f3ff', '#ff007f', '#ffd700', '#00ff87', '#c77dff', '#ff9e00'];
+            foods.push({
+                x: x !== undefined ? x : 100 + Math.random() * (WORLD_SIZE - 200),
+                y: y !== undefined ? y : 100 + Math.random() * (WORLD_SIZE - 200),
+                value,
+                radius: isMeat ? Math.min(14, 6 + value * 0.12) : (4 + Math.random() * 3),
+                color: color || palette[Math.floor(Math.random() * palette.length)],
+                isMeat,
+                pulse: Math.random() * Math.PI * 2
+            });
+        }
+
+        function spawnPowerup() {
+            const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+            powerups.push({
+                x: 200 + Math.random() * (WORLD_SIZE - 400),
+                y: 200 + Math.random() * (WORLD_SIZE - 400),
+                type,
+                radius: 18,
+                bob: Math.random() * Math.PI * 2
+            });
+        }
+
+        // 蛇類定義
+        class Snake {
+            constructor(name, x, y, startLevel = 1, isPlayer = false) {
+                this.name = name;
+                this.isPlayer = isPlayer;
+                this.theme = SNAKE_THEMES[Math.floor(Math.random() * SNAKE_THEMES.length)];
+                this.level = startLevel;
+                this.xp = 0;
+                this.kills = 0;
+                this.maxLevelReached = startLevel;
+                this.alive = true;
+
+                this.angle = Math.random() * Math.PI * 2;
+                this.baseSpeed = 195;
+                this.boostCostTimer = 0;
+                this.stunTimer = 0; // 同級碰撞暈眩
+                this.invulnTimer = 2.0; // 出生保護
+                this.buffs = {}; // { magnet: 10, ghost: 7, frenzy: 10 }
+
+                // 初始化蛇身節點 (嚴格與 Level 成正比)
+                this.segments = [];
+                const targetLen = this.getTargetSegmentCount();
+                for (let i = 0; i < targetLen; i++) {
+                    this.segments.push({
+                        x: x - Math.cos(this.angle) * i * SEGMENT_SPACING,
+                        y: y - Math.sin(this.angle) * i * SEGMENT_SPACING
+                    });
+                }
+
+                // AI 決策計時器
+                this.aiTimer = 0;
+                this.aiTargetAngle = this.angle;
+            }
+
+            get xpToNextLevel() {
+                return 40 + this.level * 25;
+            }
+
+            // 蛇身長度與 Level 成正比的核心公式
+            getTargetSegmentCount() {
+                return BASE_SEGMENTS + this.level * SEGMENTS_PER_LEVEL;
+            }
+
+            // 蛇頭半徑隨 Level 略微變粗，增強視覺壓迫感
+            get headRadius() {
+                return Math.min(34, 13 + this.level * 0.65);
+            }
+
+            get head() {
+                return this.segments[0];
+            }
+
+            addXp(amount, showFloat = false) {
+                if (!this.alive) return;
+                const mult = this.buffs.frenzy > 0 ? 2 : 1;
+                const gained = amount * mult;
+                this.xp += gained;
+
+                if (showFloat && this.isPlayer && gained >= 20) {
+                    spawnFloatingText(this.head.x, this.head.y - 25, `+${Math.round(gained)} XP`, '#00ff87', 14);
+                }
+
+                while (this.xp >= this.xpToNextLevel) {
+                    this.xp -= this.xpToNextLevel;
+                    this.levelUp();
+                }
+            }
+
+            levelUp() {
+                this.level++;
+                if (this.level > this.maxLevelReached) this.maxLevelReached = this.level;
+                this.syncSegmentsToLevel();
+                if (this.isPlayer) {
+                    sfx.levelUp();
+                    screenShake = 6;
+                    spawnFloatingText(this.head.x, this.head.y - 40, `LEVEL UP! LV.${this.level}`, '#ffd700', 22);
+                }
+                spawnParticles(this.head.x, this.head.y, this.theme.head, 16, 200);
+            }
+
+            // 失去等級（被咬斷尾巴或中降維打擊）
+            loseLevels(lostCount, reasonText = '') {
+                if (lostCount <= 0) return;
+                this.level = Math.max(1, this.level - lostCount);
+                this.xp = 0;
+                this.syncSegmentsToLevel();
+                if (this.isPlayer) {
+                    sfx.bite();
+                    screenShake = 12;
+                    spawnFloatingText(this.head.x, this.head.y - 35, reasonText || `失去 ${lostCount} 級！`, '#ff007f', 20);
+                }
+            }
+
+            // 強制同步蛇身節點數量與當前 Level 成正比
+            syncSegmentsToLevel() {
+                const target = this.getTargetSegmentCount();
+                while (this.segments.length < target) {
+                    const tail = this.segments[this.segments.length - 1];
+                    this.segments.push({ x: tail.x, y: tail.y });
+                }
+                if (this.segments.length > target) {
+                    this.segments.length = target;
+                }
+            }
+
+            update(dt) {
+                if (!this.alive) return;
+
+                // 更新狀態計時器
+                if (this.invulnTimer > 0) this.invulnTimer -= dt;
+                if (this.stunTimer > 0) this.stunTimer -= dt;
+                for (const key in this.buffs) {
+                    if (this.buffs[key] > 0) {
+                        this.buffs[key] -= dt;
+                        if (this.buffs[key] <= 0) delete this.buffs[key];
+                    }
+                }
+
+                // 決定目標方向
+                let desiredAngle = this.angle;
+                let isBoosting = false;
+
+                if (this.isPlayer) {
+                    // 鍵盤左右轉向優先
+                    if (input.keys['ArrowLeft'] || input.keys['KeyA']) {
+                        this.angle -= 3.6 * dt;
+                        desiredAngle = this.angle;
+                    } else if (input.keys['ArrowRight'] || input.keys['KeyD']) {
+                        this.angle += 3.6 * dt;
+                        desiredAngle = this.angle;
+                    } else if (input.hasPointer) {
+                        desiredAngle = Math.atan2(input.pointerY - canvas.height / 2, input.pointerX - canvas.width / 2);
+                    }
+                    isBoosting = input.boosting || input.keys['Space'] || input.keys['ArrowUp'] || input.keys['KeyW'];
+                } else {
+                    // AI 智慧行為：尋找低等級獵物、閃避高等級天敵、搶奪高能肉塊
+                    this.aiTimer -= dt;
+                    if (this.aiTimer <= 0) {
+                        this.aiTimer = 0.15 + Math.random() * 0.15;
+                        this.computeAI();
+                    }
+                    desiredAngle = this.aiTargetAngle;
+                    isBoosting = this.aiBoost;
+                }
+
+                // 加速消耗邏輯（只有 Level > 1 或有 XP 時才能加速）
+                let speed = this.baseSpeed + Math.min(70, this.level * 1.8);
+                if (this.stunTimer > 0) {
+                    speed *= 0.45;
+                } else if (isBoosting && (this.level > 1 || this.xp > 5)) {
+                    speed *= 1.65;
+                    this.boostCostTimer += dt;
+                    if (this.boostCostTimer >= 0.25) {
+                        this.boostCostTimer = 0;
+                        if (this.xp >= 4) {
+                            this.xp -= 4;
+                        } else if (this.level > 1) {
+                            this.level--;
+                            this.xp = this.xpToNextLevel - 8;
+                            this.syncSegmentsToLevel();
+                        }
+                        // 加速尾跡掉落微光粒子
+                        const tail = this.segments[this.segments.length - 1];
+                        spawnFood(tail.x, tail.y, 3, this.theme.body1, false);
+                    }
+                }
+
+                // 世界異變：極速狂潮
+                if (worldEvent.active && worldEvent.type === 'SPEED_MANIA') {
+                    speed *= 1.35;
+                }
+
+                // 平滑轉向（高等蛇轉向半徑略大，給低等靈活蛇走位反殺空間！）
+                const turnRate = Math.max(2.6, 5.2 - this.level * 0.06);
+                const diff = normalizeAngle(desiredAngle - this.angle);
+                this.angle += Math.sign(diff) * Math.min(Math.abs(diff), turnRate * dt);
+
+                // 移動蛇頭
+                const head = this.head;
+                let vx = Math.cos(this.angle) * speed;
+                let vy = Math.sin(this.angle) * speed;
+
+                // 黑洞引力影響
+                for (const bh of blackHoles) {
+                    const d = dist(head.x, head.y, bh.x, bh.y);
+                    if (d < bh.pullRadius && d > 10) {
+                        const pullForce = (1 - d / bh.pullRadius) * 240;
+                        const pullAng = Math.atan2(bh.y - head.y, bh.x - head.x);
+                        vx += Math.cos(pullAng) * pullForce;
+                        vy += Math.sin(pullAng) * pullForce;
+                    }
+                    // 黑洞核心傳送（隨機彈射到安全處並獲得能量）
+                    if (d < bh.coreRadius) {
+                        head.x = 300 + Math.random() * (WORLD_SIZE - 600);
+                        head.y = 300 + Math.random() * (WORLD_SIZE - 600);
+                        for (let s of this.segments) { s.x = head.x; s.y = head.y; }
+                        this.addXp(30, true);
+                        if (this.isPlayer) spawnFloatingText(head.x, head.y - 30, '黑洞躍遷！+30 XP', '#c77dff', 18);
+                    }
+                }
+
+                head.x += vx * dt;
+                head.y += vy * dt;
+
+                // 邊界反彈保護（不會撞牆死，而是平滑折返）
+                const margin = 40;
+                if (head.x < margin) { head.x = margin; this.angle = normalizeAngle(Math.PI - this.angle); }
+                if (head.x > WORLD_SIZE - margin) { head.x = WORLD_SIZE - margin; this.angle = normalizeAngle(Math.PI - this.angle); }
+                if (head.y < margin) { head.y = margin; this.angle = normalizeAngle(-this.angle); }
+                if (head.y > WORLD_SIZE - margin) { head.y = WORLD_SIZE - margin; this.angle = normalizeAngle(-this.angle); }
+
+                // 蟲洞傳送檢測
+                for (const wh of wormholes) {
+                    if (dist(head.x, head.y, wh.x, wh.y) < wh.radius && (!this.wormholeCooldown || this.wormholeCooldown <= 0)) {
+                        const partner = wormholes.find(w => w !== wh);
+                        if (partner) {
+                            const offsetX = partner.x - wh.x;
+                            const offsetY = partner.y - wh.y;
+                            for (const seg of this.segments) {
+                                seg.x += offsetX;
+                                seg.y += offsetY;
+                            }
+                            this.wormholeCooldown = 2.5;
+                            spawnParticles(partner.x, partner.y, '#00f3ff', 20, 220);
+                            if (this.isPlayer) {
+                                sfx.powerup();
+                                spawnFloatingText(partner.x, partner.y - 30, '蟲洞穿梭！', '#00f3ff', 18);
+                            }
+                        }
+                    }
+                }
+                if (this.wormholeCooldown > 0) this.wormholeCooldown -= dt;
+
+                // 跟隨運動學：讓每一節身體精確保持 SEGMENT_SPACING 間距
+                for (let i = 1; i < this.segments.length; i++) {
+                    const prev = this.segments[i - 1];
+                    const curr = this.segments[i];
+                    const dx = prev.x - curr.x;
+                    const dy = prev.y - curr.y;
+                    const d = Math.hypot(dx, dy);
+                    if (d > SEGMENT_SPACING) {
+                        const ang = Math.atan2(dy, dx);
+                        curr.x = prev.x - Math.cos(ang) * SEGMENT_SPACING;
+                        curr.y = prev.y - Math.sin(ang) * SEGMENT_SPACING;
+                    }
+                }
+
+                // 吞噬食物檢測（含磁鐵吸引效果）
+                const magnetRange = this.buffs.magnet > 0 ? 220 : (this.headRadius + 16);
+                for (let i = foods.length - 1; i >= 0; i--) {
+                    const f = foods[i];
+                    const d = dist(head.x, head.y, f.x, f.y);
+                    if (d < magnetRange) {
+                        if (this.buffs.magnet > 0 && d > this.headRadius) {
+                            const pullAng = Math.atan2(head.y - f.y, head.x - f.x);
+                            f.x += Math.cos(pullAng) * 420 * dt;
+                            f.y += Math.sin(pullAng) * 420 * dt;
+                        } else {
+                            this.addXp(f.value, f.isMeat);
+                            if (this.isPlayer) sfx.eat();
+                            foods.splice(i, 1);
+                        }
+                    }
+                }
+
+                // 拾取奇異道具
+                for (let i = powerups.length - 1; i >= 0; i--) {
+                    const p = powerups[i];
+                    if (dist(head.x, head.y, p.x, p.y) < this.headRadius + p.radius) {
+                        this.applyPowerup(p.type);
+                        powerups.splice(i, 1);
+                    }
+                }
+            }
+
+            applyPowerup(type) {
+                if (this.isPlayer) {
+                    sfx.powerup();
+                    spawnFloatingText(this.head.x, this.head.y - 35, `${type.icon} ${type.name}!`, type.color, 20);
+                }
+                spawnParticles(this.head.x, this.head.y, type.color, 20, 220);
+
+                if (type.id === 'growth_surge') {
+                    this.levelUp();
+                    this.levelUp();
+                } else if (type.id === 'shrink_curse') {
+                    // 降維打擊彈：對範圍 750 內所有比自己等級高的蛇造成降級打擊！
+                    let hitCount = 0;
+                    for (const other of snakes) {
+                        if (other !== this && other.alive && other.level > this.level) {
+                            if (dist(this.head.x, this.head.y, other.head.x, other.head.y) < 850) {
+                                const drop = Math.max(2, Math.floor(other.level * 0.35));
+                                other.loseLevels(drop, `遭受降維打擊 -${drop} LV!`);
+                                hitCount++;
+                            }
+                        }
+                    }
+                    if (this.isPlayer && hitCount > 0) {
+                        spawnFloatingText(this.head.x, this.head.y - 60, `降維波擊中 ${hitCount} 條巨蟒！`, '#38b000', 18);
+                    }
+                } else {
+                    this.buffs[type.id] = type.duration;
+                }
+            }
+
+            computeAI() {
+                const head = this.head;
+                this.aiBoost = false;
+
+                // 1. 檢查附近威脅（等級比自己高的蛇）
+                let dangerSnake = null;
+                let minDangerDist = 340;
+                for (const other of snakes) {
+                    if (other === this || !other.alive || other.buffs.ghost > 0) continue;
+                    if (other.level > this.level) {
+                        const d = dist(head.x, head.y, other.head.x, other.head.y);
+                        if (d < minDangerDist) {
+                            minDangerDist = d;
+                            dangerSnake = other;
+                        }
+                    }
+                }
+
+                if (dangerSnake) {
+                    // 逃離高等蛇
+                    const awayAngle = Math.atan2(head.y - dangerSnake.head.y, head.x - dangerSnake.head.x);
+                    this.aiTargetAngle = awayAngle + (Math.random() - 0.5) * 0.4;
+                    if (minDangerDist < 200 && this.level > 2) this.aiBoost = true;
+                    return;
+                }
+
+                // 2. 尋找獵物（等級比自己低的蛇頭或身體）
+                let preyTarget = null;
+                let minPreyDist = 420;
+                for (const other of snakes) {
+                    if (other === this || !other.alive || other.invulnTimer > 0 || other.buffs.ghost > 0) continue;
+                    if (this.level > other.level) {
+                        const d = dist(head.x, head.y, other.head.x, other.head.y);
+                        if (d < minPreyDist) {
+                            minPreyDist = d;
+                            preyTarget = other.head;
+                        }
+                    }
+                }
+
+                if (preyTarget) {
+                    this.aiTargetAngle = Math.atan2(preyTarget.y - head.y, preyTarget.x - head.x);
+                    if (minPreyDist < 220 && this.level > 2) this.aiBoost = true;
+                    return;
+                }
+
+                // 3. 尋找最近的高價值食物或道具
+                let bestFood = null;
+                let bestScore = -Infinity;
+                for (let i = 0; i < foods.length; i += 2) {
+                    const f = foods[i];
+                    const d = dist(head.x, head.y, f.x, f.y);
+                    if (d < 450) {
+                        const score = (f.isMeat ? f.value * 4 : f.value) - d * 0.15;
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestFood = f;
+                        }
+                    }
+                }
+
+                if (bestFood) {
+                    this.aiTargetAngle = Math.atan2(bestFood.y - head.y, bestFood.x - head.x);
+                } else if (Math.random() < 0.2) {
+                    this.aiTargetAngle += (Math.random() - 0.5) * 1.5;
+                }
+            }
+        }
+
+        // 核心碰撞規則：高 Level 吞噬蛇頭（即死） & 咬斷低 Level 蛇身（按斷裂比例失去 Level）
+        function resolveSnakeCollisions() {
+            for (let i = 0; i < snakes.length; i++) {
+                const attacker = snakes[i];
+                if (!attacker.alive || attacker.invulnTimer > 0 || attacker.buffs.ghost > 0) continue;
+
+                const aHead = attacker.head;
+                const aRad = attacker.headRadius;
+
+                for (let j = 0; j < snakes.length; j++) {
+                    if (i === j) continue;
+                    const victim = snakes[j];
+                    if (!victim.alive || victim.invulnTimer > 0 || victim.buffs.ghost > 0) continue;
+
+                    const vHead = victim.head;
+                    const vRad = victim.headRadius;
+                    const headDist = dist(aHead.x, aHead.y, vHead.x, vHead.y);
+
+                    // 1. 蛇頭對蛇頭碰撞
+                    if (headDist < aRad + vRad - 4) {
+                        if (attacker.level > victim.level) {
+                            // 高 Level 吃低 Level 蛇頭 -> 即時死亡！
+                            killSnake(victim, attacker, `被 LV.${attacker.level} ${attacker.name} 吞噬蛇頭！`);
+                        } else if (attacker.level === victim.level) {
+                            // 同等級相撞 -> 彈開並短暫暈眩
+                            const pushAng = Math.atan2(aHead.y - vHead.y, aHead.x - vHead.x);
+                            aHead.x += Math.cos(pushAng) * 18;
+                            aHead.y += Math.sin(pushAng) * 18;
+                            attacker.angle = pushAng;
+                            attacker.stunTimer = 0.45;
+                            spawnParticles((aHead.x + vHead.x) / 2, (aHead.y + vHead.y) / 2, '#ffffff', 8, 120);
+                        }
+                        continue;
+                    }
+
+                    // 2. 高 Level 蛇頭咬中低 Level 蛇身 -> 咬斷該截蛇身，失去該長度的 Level！
+                    if (attacker.level > victim.level) {
+                        // 從第 2 節開始檢查蛇身（避免與頭部判定重疊）
+                        for (let sIdx = 2; sIdx < victim.segments.length; sIdx++) {
+                            const seg = victim.segments[sIdx];
+                            const segRad = Math.max(6, vRad * (1 - (sIdx / victim.segments.length) * 0.45));
+                            if (dist(aHead.x, aHead.y, seg.x, seg.y) < aRad + segRad - 3) {
+                                severSnakeBody(victim, sIdx, attacker);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 咬斷蛇身處理函數
+        function severSnakeBody(victim, cutIndex, attacker) {
+            const totalSegs = victim.segments.length;
+            const severedCount = totalSegs - cutIndex;
+            if (severedCount <= 0) return;
+
+            // 計算被咬斷的長度對應失去多少 Level (長度與 Level 成正比)
+            const lostLevels = Math.max(1, Math.round(severedCount / SEGMENTS_PER_LEVEL));
+
+            // 將被咬斷的節點轉化為高能霓虹肉塊！
+            for (let k = cutIndex; k < totalSegs; k += 2) {
+                const seg = victim.segments[k];
+                spawnFood(seg.x + (Math.random() - 0.5) * 15, seg.y + (Math.random() - 0.5) * 15, 18, victim.theme.body1, true);
+                spawnParticles(seg.x, seg.y, victim.theme.head, 3, 130);
+            }
+
+            // 受害者扣除對應 Level 並縮短蛇身
+            victim.loseLevels(lostLevels, `蛇身被咬斷！失去 ${lostLevels} 級`);
+
+            // 給攻擊者短暫無敵幀避免同一幀重複判定，並獎勵少量XP
+            attacker.addXp(lostLevels * 15, true);
+            if (attacker.isPlayer) {
+                sfx.bite();
+                screenShake = 8;
+                spawnFloatingText(victim.segments[cutIndex].x, victim.segments[cutIndex].y - 20, `✂️ 咬斷敵身！-${lostLevels} LV`, '#ffd700', 18);
+            }
+        }
+
+        // 蛇死亡處理（被高 Level 吞噬頭部）
+        function killSnake(victim, killer, reason) {
+            if (!victim.alive) return;
+            victim.alive = false;
+
+            if (killer) {
+                killer.kills++;
+                killer.addXp(35 + victim.level * 22, true);
+                if (killer.isPlayer) {
+                    sfx.kill();
+                    screenShake = 14;
+                    spawnFloatingText(victim.head.x, victim.head.y - 30, `💀 吞噬擊殺！LV.${victim.level}`, '#ff007f', 22);
+                }
+            }
+
+            // 整條蛇化為豐盛能量盛宴
+            for (let i = 0; i < victim.segments.length; i += 2) {
+                const seg = victim.segments[i];
+                spawnFood(seg.x, seg.y, 16 + Math.floor(victim.level * 0.8), victim.theme.head, true);
+            }
+            spawnParticles(victim.head.x, victim.head.y, victim.theme.head, 35, 280);
+
+            if (victim.isPlayer) {
+                sfx.die();
+                screenShake = 20;
+                setTimeout(() => showGameOver(reason), 650);
+            }
+        }
+
+        // 周期性世界異變事件
+        function updateWorldEvents(dt) {
+            const banner = document.getElementById('eventBanner');
+            if (!worldEvent.active) {
+                worldEvent.timer -= dt;
+                if (worldEvent.timer <= 0) {
+                    const events = [
+                        { type: 'METEOR_SHOWER', text: '🌠 異變事件：能量流星雨降臨，全場食物激增！', duration: 15 },
+                        { type: 'SPEED_MANIA', text: '⚡ 異變事件：量子超頻！全場蛇群移動速度大幅提升！', duration: 14 },
+                        { type: 'BLACK_HOLE_SURGE', text: '🌀 異變事件：時空黑洞活躍，小心中心引力漩渦！', duration: 16 }
+                    ];
+                    const chosen = events[Math.floor(Math.random() * events.length)];
+                    worldEvent.active = true;
+                    worldEvent.type = chosen.type;
+                    worldEvent.duration = chosen.duration;
+                    banner.textContent = chosen.text;
+                    banner.classList.add('show');
+
+                    if (chosen.type === 'METEOR_SHOWER') {
+                        for (let i = 0; i < 120; i++) spawnFood(undefined, undefined, 22, '#ffd700', true);
+                    }
+                }
+            } else {
+                worldEvent.duration -= dt;
+                if (worldEvent.duration <= 0) {
+                    worldEvent.active = false;
+                    worldEvent.timer = 22;
+                    banner.classList.remove('show');
+                }
+            }
+        }
+
+        // 初始化一局新遊戲
+        function startGame() {
+            sfx.init();
+            const rawName = document.getElementById('playerNameInput').value.trim();
+            const playerName = rawName || '霓虹獵手';
+
+            snakes = [];
+            foods = [];
+            powerups = [];
+            particles = [];
+            floatingTexts = [];
+            blackHoles = [
+                { x: WORLD_SIZE * 0.3, y: WORLD_SIZE * 0.3, pullRadius: 340, coreRadius: 36, rot: 0 },
+                { x: WORLD_SIZE * 0.7, y: WORLD_SIZE * 0.7, pullRadius: 340, coreRadius: 36, rot: 0 }
+            ];
+            wormholes = [
+                { x: WORLD_SIZE * 0.25, y: WORLD_SIZE * 0.75, radius: 42, color: '#00f3ff' },
+                { x: WORLD_SIZE * 0.75, y: WORLD_SIZE * 0.25, radius: 42, color: '#ff007f' }
+            ];
+
+            // 創建玩家
+            player = new Snake(playerName, WORLD_SIZE / 2, WORLD_SIZE / 2, 1, true);
+            snakes.push(player);
+
+            // 生成生態系統：包含低級幼蛇、中級獵手與少數高級霸主
+            for (let i = 0; i < MAX_BOTS; i++) {
+                spawnBotSnake();
+            }
+
+            for (let i = 0; i < MAX_FOOD; i++) spawnFood();
+            for (let i = 0; i < MAX_POWERUPS; i++) spawnPowerup();
+
+            worldEvent = { active: false, type: null, timer: 15, duration: 0 };
+            document.getElementById('eventBanner').classList.remove('show');
+            document.getElementById('menuModal').style.display = 'none';
+            gameState = 'PLAYING';
+        }
+
+        function spawnBotSnake() {
+            const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+            // 多樣化等級分佈：大部分 1~5 級，少數 6~12 級，極少數 14~18 級巨蟒
+            const roll = Math.random();
+            let lv = 1;
+            if (roll > 0.90) lv = 12 + Math.floor(Math.random() * 7);
+            else if (roll > 0.65) lv = 5 + Math.floor(Math.random() * 6);
+            else lv = 1 + Math.floor(Math.random() * 4);
+
+            // 確保不在玩家臉上刷新
+            let x, y;
+            do {
+                x = 200 + Math.random() * (WORLD_SIZE - 400);
+                y = 200 + Math.random() * (WORLD_SIZE - 400);
+            } while (player && player.alive && dist(x, y, player.head.x, player.head.y) < 550);
+
+            snakes.push(new Snake(name, x, y, lv, false));
+        }
+
+        function showGameOver(reason) {
+            gameState = 'MENU';
+            document.getElementById('deathStats').style.display = 'block';
+            document.getElementById('deathReason').textContent = reason;
+            document.getElementById('finalScoreText').textContent =
+                `最高等級: LV.${player.maxLevelReached} (${getTitleForLevel(player.maxLevelReached)}) ｜ 吞噬擊殺: ${player.kills}`;
+            document.getElementById('startBtn').textContent = '再次進化重生';
+            document.getElementById('menuModal').style.display = 'flex';
+        }
+
+        // 更新所有 HUD 元素
+        function updateHUD() {
+            if (!player) return;
+            document.getElementById('hudLevel').textContent = `LV. ${player.level}`;
+            document.getElementById('hudTitle').textContent = getTitleForLevel(player.level);
+            const pct = Math.min(100, (player.xp / player.xpToNextLevel) * 100);
+            document.getElementById('hudXpBar').style.width = `${pct}%`;
+            document.getElementById('hudLength').textContent = `蛇身長度: ${player.segments.length}`;
+            document.getElementById('hudKills').textContent = `擊殺: ${player.kills}`;
+
+            // Buff 顯示
+            const buffsDiv = document.getElementById('hudBuffs');
+            buffsDiv.innerHTML = '';
+            const buffLabels = { magnet: '🧲 磁場', ghost: '👻 幽靈', frenzy: '🔥 雙倍' };
+            for (const key in player.buffs) {
+                const pill = document.createElement('span');
+                pill.className = 'buff-pill';
+                pill.textContent = `${buffLabels[key] || key} ${Math.ceil(player.buffs[key])}s`;
+                buffsDiv.appendChild(pill);
+            }
+
+            // 排行榜
+            const sorted = [...snakes].filter(s => s.alive).sort((a, b) => b.level - a.level || b.xp - a.xp).slice(0, 6);
+            const lbList = document.getElementById('lbList');
+            lbList.innerHTML = sorted.map((s, idx) => `
+                <div class="lb-row ${s.isPlayer ? 'player' : ''}">
+                    <span>${idx + 1}. ${s.name}</span>
+                    <span>LV.${s.level}</span>
+                </div>
+            `).join('');
+        }
+
+        // 主渲染循環
+        function render() {
+            ctx.fillStyle = '#090a0f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (player && player.alive) {
+                camera.x = lerp(camera.x, player.head.x, 0.12);
+                camera.y = lerp(camera.y, player.head.y, 0.12);
+                // 隨著等級提升，鏡頭自動略微拉遠以獲得更廣闊戰略視野
+                const targetZoom = Math.max(0.55, 1.02 - player.level * 0.012);
+                camera.zoom = lerp(camera.zoom, targetZoom, 0.05);
+            }
+
+            ctx.save();
+            // 螢幕震動特效
+            let shakeX = 0, shakeY = 0;
+            if (screenShake > 0) {
+                shakeX = (Math.random() - 0.5) * screenShake;
+                shakeY = (Math.random() - 0.5) * screenShake;
+                screenShake *= 0.88;
+                if (screenShake < 0.3) screenShake = 0;
+            }
+
+            ctx.translate(canvas.width / 2 + shakeX, canvas.height / 2 + shakeY);
+            ctx.scale(camera.zoom, camera.zoom);
+            ctx.translate(-camera.x, -camera.y);
+
+            // 1. 繪製六邊形/科技網格背景
+            drawGrid();
+
+            // 2. 繪製世界邊界能量牆
+            ctx.strokeStyle = '#ff007f';
+            ctx.lineWidth = 8;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ff007f';
+            ctx.strokeRect(0, 0, WORLD_SIZE, WORLD_SIZE);
+            ctx.shadowBlur = 0;
+
+            // 3. 繪製蟲洞與黑洞
+            drawAnomalies();
+
+            // 4. 繪製食物
+            for (const f of foods) {
+                f.pulse += 0.08;
+                const r = f.radius + Math.sin(f.pulse) * 1.2;
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = f.color;
+                if (f.isMeat) {
+                    ctx.shadowBlur = 12;
+                    ctx.shadowColor = f.color;
+                }
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            // 5. 繪製奇異道具
+            for (const p of powerups) {
+                p.bob += 0.06;
+                const yOff = Math.sin(p.bob) * 4;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y + yOff, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(15, 20, 32, 0.85)';
+                ctx.fill();
+                ctx.lineWidth = 2.5;
+                ctx.strokeStyle = p.type.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = p.type.color;
+                ctx.stroke();
+
+                ctx.font = '18px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(p.type.icon, p.x, p.y + yOff + 1);
+                ctx.restore();
+            }
+
+            // 6. 繪製所有蛇（先畫低等級，再畫高等級，突顯霸主壓迫感）
+            const renderOrder = [...snakes].filter(s => s.alive).sort((a, b) => a.level - b.level);
+            for (const s of renderOrder) {
+                drawSnake(s);
+            }
+
+            // 7. 繪製粒子特效
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const pt = particles[i];
+                ctx.globalAlpha = Math.max(0, pt.life);
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // 8. 繪製浮動戰鬥文字
+            for (const ft of floatingTexts) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, ft.life);
+                ctx.font = `800 ${ft.size}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillStyle = ft.color;
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = '#000';
+                ctx.fillText(ft.text, ft.x, ft.y);
+                ctx.restore();
+            }
+
+            ctx.restore();
+
+            // 繪製雷達小地圖
+            drawMinimap();
+        }
+
+        function drawGrid() {
+            const step = 100;
+            const viewW = (canvas.width / camera.zoom) * 0.6;
+            const viewH = (canvas.height / camera.zoom) * 0.6;
+            const startX = Math.max(0, Math.floor((camera.x - viewW) / step) * step);
+            const endX = Math.min(WORLD_SIZE, Math.ceil((camera.x + viewW) / step) * step);
+            const startY = Math.max(0, Math.floor((camera.y - viewH) / step) * step);
+            const endY = Math.min(WORLD_SIZE, Math.ceil((camera.y + viewH) / step) * step);
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let x = startX; x <= endX; x += step) {
+                ctx.moveTo(x, startY);
+                ctx.lineTo(x, endY);
+            }
+            for (let y = startY; y <= endY; y += step) {
+                ctx.moveTo(startX, y);
+                ctx.lineTo(endX, y);
+            }
+            ctx.stroke();
+        }
+
+        function drawAnomalies() {
+            // 黑洞
+            for (const bh of blackHoles) {
+                bh.rot += 0.03;
+                const grad = ctx.createRadialGradient(bh.x, bh.y, bh.coreRadius * 0.5, bh.x, bh.y, bh.pullRadius);
+                grad.addColorStop(0, 'rgba(0, 0, 0, 0.95)');
+                grad.addColorStop(0.25, 'rgba(123, 44, 191, 0.35)');
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(bh.x, bh.y, bh.pullRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(bh.x, bh.y, bh.coreRadius, 0, Math.PI * 2);
+                ctx.fillStyle = '#000';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#c77dff';
+                ctx.stroke();
+            }
+
+            // 蟲洞
+            for (const wh of wormholes) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(wh.x, wh.y, wh.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = wh.color;
+                ctx.lineWidth = 4;
+                ctx.setLineDash([12, 8]);
+                ctx.lineDashOffset = -performance.now() * 0.05;
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(0, 243, 255, 0.08)';
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function drawSnake(s) {
+            ctx.save();
+            if (s.invulnTimer > 0) {
+                ctx.globalAlpha = 0.55 + Math.sin(performance.now() * 0.02) * 0.3;
+            } else if (s.buffs.ghost > 0) {
+                ctx.globalAlpha = 0.4;
+            }
+
+            const headRad = s.headRadius;
+
+            // 從尾到頭繪製蛇身（漸變鱗片質感）
+            for (let i = s.segments.length - 1; i >= 1; i--) {
+                const seg = s.segments[i];
+                const ratio = i / s.segments.length;
+                const r = Math.max(5, headRad * (1 - ratio * 0.52));
+
+                ctx.beginPath();
+                ctx.arc(seg.x, seg.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = i % 2 === 0 ? s.theme.body1 : s.theme.body2;
+                ctx.fill();
+            }
+
+            // 繪製蛇頭
+            const head = s.head;
+            ctx.beginPath();
+            ctx.arc(head.x, head.y, headRad, 0, Math.PI * 2);
+            ctx.fillStyle = s.theme.head;
+            ctx.shadowBlur = 18;
+            ctx.shadowColor = s.theme.glow;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // 繪製發光雙眼
+            const eyeOffset = headRad * 0.45;
+            const eyeSide = headRad * 0.48;
+            const eyeRad = Math.max(2.5, headRad * 0.22);
+
+            for (const side of [-1, 1]) {
+                const ex = head.x + Math.cos(s.angle) * eyeOffset - Math.sin(s.angle) * eyeSide * side;
+                const ey = head.y + Math.sin(s.angle) * eyeOffset + Math.cos(s.angle) * eyeSide * side;
+                ctx.beginPath();
+                ctx.arc(ex, ey, eyeRad, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(ex + Math.cos(s.angle) * 1.5, ey + Math.sin(s.angle) * 1.5, eyeRad * 0.55, 0, Math.PI * 2);
+                ctx.fillStyle = '#090a0f';
+                ctx.fill();
+            }
+
+            // 繪製頭頂等級標籤與獵殺/危險指示器
+            ctx.globalAlpha = 1;
+            let tagColor = '#ffffff';
+            let statusIcon = '';
+            if (player && player.alive && !s.isPlayer) {
+                if (s.level > player.level) {
+                    tagColor = '#ff4d94'; // 危險天敵（紅色警告）
+                    statusIcon = '⚠️ ';
+                } else if (s.level < player.level) {
+                    tagColor = '#00ff87'; // 可吞噬獵物（綠色獵殺）
+                    statusIcon = '🎯 ';
+                } else {
+                    tagColor = '#ffd700'; // 同級競爭者
+                }
+            }
+
+            ctx.font = 'bold 13px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = tagColor;
+            ctx.shadowBlur = 4;
+            ctx.shadowColor = '#000';
+            ctx.fillText(`${statusIcon}[LV.${s.level}] ${s.name}`, head.x, head.y - headRad - 12);
+
+            ctx.restore();
+        }
+
+        function drawMinimap() {
+            const w = minimapCanvas.width;
+            const h = minimapCanvas.height;
+            mCtx.clearRect(0, 0, w, h);
+
+            const scale = w / WORLD_SIZE;
+
+            // 繪製蟲洞與黑洞位置
+            for (const bh of blackHoles) {
+                mCtx.fillStyle = '#c77dff';
+                mCtx.beginPath();
+                mCtx.arc(bh.x * scale, bh.y * scale, 4, 0, Math.PI * 2);
+                mCtx.fill();
+            }
+
+            // 繪製其他蛇
+            for (const s of snakes) {
+                if (!s.alive) continue;
+                mCtx.beginPath();
+                mCtx.arc(s.head.x * scale, s.head.y * scale, s.isPlayer ? 4.5 : Math.min(4, 1.8 + s.level * 0.12), 0, Math.PI * 2);
+                if (s.isPlayer) {
+                    mCtx.fillStyle = '#00f3ff';
+                } else if (player && s.level > player.level) {
+                    mCtx.fillStyle = '#ff007f';
+                } else {
+                    mCtx.fillStyle = '#00ff87';
+                }
+                mCtx.fill();
+            }
+        }
+
+        // 遊戲主循環
+        let lastTime = performance.now();
+        function gameLoop(now) {
+            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+
+            if (gameState === 'PLAYING') {
+                updateWorldEvents(dt);
+
+                // 補充生態食物、道具與 AI 蛇
+                while (foods.length < MAX_FOOD) spawnFood();
+                while (powerups.length < MAX_POWERUPS) spawnPowerup();
+                snakes = snakes.filter(s => s.alive || s.isPlayer);
+                while (snakes.length < MAX_BOTS + 1) spawnBotSnake();
+
+                for (const s of snakes) s.update(dt);
+                resolveSnakeCollisions();
+
+                // 更新粒子與飄字
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const pt = particles[i];
+                    pt.x += pt.vx * dt;
+                    pt.y += pt.vy * dt;
+                    pt.life -= dt;
+                    if (pt.life <= 0) particles.splice(i, 1);
+                }
+                for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                    const ft = floatingTexts[i];
+                    ft.y += ft.vy * dt;
+                    ft.life -= dt * 0.85;
+                    if (ft.life <= 0) floatingTexts.splice(i, 1);
+                }
+
+                updateHUD();
+            }
+
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 跨裝置事件綁定 (Desktop Mouse + Keyboard & Mobile Touch)
+        window.addEventListener('mousemove', e => {
+            input.hasPointer = true;
+            input.pointerX = e.clientX;
+            input.pointerY = e.clientY;
+        });
+
+        window.addEventListener('mousedown', e => {
+            if (e.button === 0 && gameState === 'PLAYING') input.boosting = true;
+        });
+        window.addEventListener('mouseup', () => {
+            input.boosting = false;
+        });
+
+        window.addEventListener('keydown', e => {
+            input.keys[e.code] = true;
+        });
+        window.addEventListener('keyup', e => {
+            input.keys[e.code] = false;
+        });
+
+        // 手機觸控引導
+        canvas.addEventListener('touchstart', e => {
+            if (e.touches.length > 0) {
+                input.hasPointer = true;
+                input.pointerX = e.touches[0].clientX;
+                input.pointerY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        canvas.addEventListener('touchmove', e => {
+            if (e.touches.length > 0) {
+                input.hasPointer = true;
+                input.pointerX = e.touches[0].clientX;
+                input.pointerY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        const boostBtn = document.getElementById('boostBtn');
+        boostBtn.addEventListener('touchstart', e => {
+            e.preventDefault();
+            input.boosting = true;
+            boostBtn.classList.add('active');
+        });
+        boostBtn.addEventListener('touchend', e => {
+            e.preventDefault();
+            input.boosting = false;
+            boostBtn.classList.remove('active');
+        });
+
+        document.getElementById('startBtn').addEventListener('click', startGame);
+
+        // 啟動背景渲染循環
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
